@@ -1,0 +1,263 @@
+Option Explicit
+
+Private Declare Function GetTickCount Lib "kernel32" () As Long
+Public lngTime As Long
+
+
+Function BS_Call(S As Double, K As Double, R As Double, sigma As Double, T As Double)
+Dim D1 As Double
+Dim D2 As Double
+
+D1 = ((Log(S / K) + (R + 0.5 * (sigma ^ 2)) * T)) / (sigma * (T ^ 0.5))
+D2 = D1 - sigma * (T ^ 0.5)
+
+BS_Call = S * WorksheetFunction.Norm_S_Dist(D1, True) - Exp(-R * T) _
+* K * WorksheetFunction.Norm_S_Dist(D2, True)
+
+End Function
+
+Function Fsigma(S As Double, K As Double, R As Double, sigma As Double, T As Double, OptionP As Double)
+Dim D1 As Double
+Dim D2 As Double
+
+D1 = ((Log(S / K) + (R + 0.5 * (sigma ^ 2)) * T)) / (sigma * (T ^ 0.5))
+D2 = D1 - sigma * (T ^ 0.5)
+
+Fsigma = S * WorksheetFunction.Norm_S_Dist(D1, True) - Exp(-R * T) _
+* K * WorksheetFunction.Norm_S_Dist(D2, True) - OptionP
+
+End Function
+
+Function FSigmaDer(S As Double, K As Double, R As Double, sigma As Double, T As Double)
+
+'Dim FD1 As Double
+'Dim FD2 As Double
+Dim D1 As Double
+Dim D2 As Double
+
+D1 = ((Log(S / K) + (R + 0.5 * (sigma ^ 2)) * T)) / (sigma * (T ^ 0.5))
+D2 = D1 - sigma * (T ^ 0.5)
+
+'FD1 = 1 / ((2 * WorksheetFunction.Pi) ^ 0.5) * Exp(0.5 * (D1 ^ 2))
+'FD2 = 1 / ((2 * WorksheetFunction.Pi) ^ 0.5) * Exp(0.5 * (D2 ^ 2))
+
+FSigmaDer = S * (1 / ((2 * WorksheetFunction.Pi) ^ 0.5) * Exp(0.5 * (D1 ^ 2))) * _
+            ((2 + sigma * T) / (T ^ 0.5)) - K / Exp(R * T) * _
+            (1 / ((2 * WorksheetFunction.Pi) ^ 0.5) * Exp(0.5 * (D2 ^ 2))) _
+            * ((2 - sigma * T) / (T ^ 0.5))
+
+
+End Function
+
+
+Sub BlackScholesImpliedVol()
+
+Dim StockP As Double
+Dim RisklessR As Double
+Dim Strike As Double
+Dim Maturity As Double
+Dim Sigma0 As Double, Sigmastart As Double
+Dim OptionP As Double
+Dim Sigman As Double
+'Dim Sigmaplusone As Double
+'Dim CallP As Double
+Dim Value1 As Double
+Dim Value2 As Double
+Dim dx As Double
+Dim i As Integer, j As Long
+
+Const Eps = 0.00001
+Const max = 100
+
+
+StockP = Range("B1").Value
+RisklessR = Range("B3").Value
+Strike = Range("B4").Value
+Maturity = Range("B4").Value
+OptionP = Range("B6").Value
+Sigma0 = Range("B2").Value
+
+Sigmastart = Sigma0
+
+lngTime = GetTickCount
+
+
+For j = 1 To 5000
+    i = 1
+    Sigma0 = Sigmastart
+    
+    Do
+        'While Abs(Sigman - Sigma0) > Eps
+        '
+        ' Sigman = Sigma0 - FsdF(StockP, Strike, RisklessR, Sigma0, Maturity, OptionP)
+        ' Sigmaplusone = Sigman - FsdF(StockP, Strike, RisklessR, Sigman, Maturity, OptionP)
+         
+         Value1 = BS_Call(StockP, Strike, RisklessR, Sigma0, Maturity)
+         Sigman = Sigma0 - Eps
+         Value2 = BS_Call(StockP, Strike, RisklessR, Sigman, Maturity)
+         dx = (Value2 - Value1) / Eps
+         If Abs(dx) < Eps Or i = max Then Exit Do
+         Sigma0 = Sigman - (OptionP - Value1) / dx
+         i = i + 1
+    Loop
+Next j
+
+Range("E3").Value = Sigma0
+
+MsgBox "Zeit = " & (GetTickCount - lngTime) / 1000
+ 
+
+
+End Sub
+
+
+Sub BSImpliedVol()
+
+Dim StockP As Double
+Dim RisklessR As Double
+Dim Strike As Double
+Dim Maturity As Double
+Dim Sigma_n As Double, Sigma_nplus1 As Double, Sigmastart As Double
+Dim OptionP As Double
+
+'Dim Sigmaplusone As Double
+'Dim CallP As Double
+Dim Value1 As Double
+Dim Value2 As Double
+Dim dx As Double
+Dim j As Long
+Dim max As Double
+
+Const Eps = 0.000001
+
+StockP = Range("StockP").Value
+RisklessR = Range("RisklessR").Value
+Strike = Range("Strike").Value
+Maturity = Range("Maturity").Value
+OptionP = Range("OptionP").Value
+Sigma_nplus1 = Range("StdA").Value
+
+Sigmastart = Sigma_nplus1
+
+lngTime = GetTickCount
+
+For j = 1 To 5000
+    Sigma_nplus1 = Sigmastart
+    While Abs(Sigma_nplus1 - Sigma_n) > Eps
+        Sigma_n = Sigma_nplus1
+       
+        Sigma_nplus1 = Sigma_n - Fsigma(StockP, Strike, RisklessR, Sigma_n, Maturity, OptionP) _
+        / FSigmaDer(StockP, Strike, RisklessR, Sigma_n, Maturity)
+    Wend
+ 
+Next j
+
+Range("ImpVola").Value = Sigma_n
+
+MsgBox "Zeit = " & (GetTickCount - lngTime) / 1000
+ 
+
+
+
+
+End Sub
+Function SecM(Sigma1 As Double, Sigma2 As Double, S As Double, K As Double, _
+R As Double, T As Double, OptionP As Double, Optional reset = False)
+
+Dim FSigmanplus1 As Double
+Static FSigman As Double
+
+If (FSigman = 0 Or reset = True) Then FSigman = Fsigma(S, K, R, Sigma1, T, OptionP)
+FSigmanplus1 = Fsigma(S, K, R, Sigma2, T, OptionP)
+
+
+SecM = (Sigma1 * FSigmanplus1 - Sigma2 * FSigman) / _
+        (FSigmanplus1 - FSigman)
+        
+FSigman = FSigmanplus1
+        
+End Function
+
+Sub DifferenceQuotient()
+
+Dim S As Double
+Dim R As Double
+Dim K As Double
+Dim T As Double
+Dim OptionP As Double
+Dim Sigma1 As Double, Sigmastart As Double
+Dim Sigma2 As Double
+Dim Sigma3 As Double
+Dim j As Long
+
+Const Eps = 0.000001
+
+S = Range("B1").Value
+Sigmastart = Range("B2").Value: Sigma1 = Sigmastart
+R = Range("B3").Value
+K = Range("B4").Value
+T = Range("B5").Value
+OptionP = Range("B6").Value
+
+Sigma2 = Sigma1 - (0.01 * Sigma1)
+
+lngTime = GetTickCount
+
+'Sigma3 = SecM(Sigma1, Sigma2, S, K, R, T, OptionP)
+
+For j = 1 To 5000
+    Sigma1 = Sigmastart
+    Sigma2 = Sigma1 - (0.01 * Sigma1)
+    Sigma3 = SecM(Sigma1, Sigma2, S, K, R, T, OptionP, True)
+    
+    
+    
+    While Abs(Sigma3 - Sigma2) > Eps
+        Sigma1 = Sigma2
+        Sigma2 = Sigma3
+        Sigma3 = SecM(Sigma1, Sigma2, S, K, R, T, OptionP)
+    Wend
+    
+    
+Next j
+
+Range("E3").Value = Sigma3
+
+
+MsgBox "Zeit = " & (GetTickCount - lngTime) / 1000
+ 
+End Sub
+
+
+
+Sub Blub()
+Dim i As Integer
+For i = 1 To 10
+    Call Msg
+Next i
+
+End Sub
+
+Sub Msg()
+Static j As Integer
+
+j = j + 1
+
+Debug.Print j
+
+
+End Sub
+
+Sub AddNumbers()
+Dim Total As Double
+Dim Cnt As Integer
+
+Total = 0
+
+For Cnt = 1 To 1000
+    Total = Total + Cnt
+Next Cnt
+
+MsgBox Total
+
+End Sub
